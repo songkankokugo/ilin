@@ -16,9 +16,11 @@ jobs:
           distribution: 'zulu'
           java-version: '21'
 
-      - uses: android-actions/setup-android@v3
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | sdkmanager --licenses || true
 
-      - name: Build APK
+      - name: Build APK via Capacitor
         run: |
           npm init -y
           npm i @capacitor/core @capacitor/cli @capacitor/android
@@ -29,7 +31,7 @@ jobs:
           npx cap sync android
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
