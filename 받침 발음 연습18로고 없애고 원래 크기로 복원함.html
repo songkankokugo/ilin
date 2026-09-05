@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>받침 크러셔 (パッチムクラッシャー)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@600;700;800;900&family=Noto+Sans+KR:wght@600;700;900&display=swap');
+
+    body {
+      font-family: 'Noto Sans KR', 'M PLUS Rounded 1c', sans-serif;
+      touch-action: manipulation;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      background-color: #020617;
+      color: white;
+      margin: 0;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100dvh;
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(-50%) scale(1); }
+      20% { transform: translateX(calc(-50% - 10px)) scale(1.02); }
+      40% { transform: translateX(calc(-50% + 10px)) scale(0.98); }
+      60% { transform: translateX(calc(-50% - 6px)) scale(1.01); }
+      80% { transform: translateX(calc(-50% + 6px)) scale(0.99); }
+    }
+    .shake-anim { animation: shake 0.38s cubic-bezier(.36,.07,.19,.97) both; }
+
+    @keyframes snapUp {
+      0% { transform: translateY(20px) scale(0.8); opacity: 0; }
+      100% { transform: translateY(0) scale(1); opacity: 1; }
+    }
+    .snap-anim { animation: snapUp 0.15s ease-out forwards; }
+
+    @keyframes crushBurst {
+      0% { transform: translateX(-50%) scale(1); filter: brightness(1); }
+      40% { transform: translateX(-50%) scale(1.2); filter: brightness(1.5); box-shadow: 0 0 20px #10b981; }
+      100% { transform: translateX(-50%) scale(0); opacity: 0; filter: brightness(2); }
+    }
+    .crush-anim { animation: crushBurst 0.35s ease-out forwards; }
+
+    .retro-btn {
+      box-shadow: 0 4px 0 #0f172a, 0 8px 10px rgba(0,0,0,0.3);
+      transition: transform 0.08s ease, box-shadow 0.08s ease;
+    }
+    .retro-btn:active {
+      transform: translateY(4px);
+      box-shadow: 0 0px 0 #0f172a, 0 2px 4px rgba(0,0,0,0.2);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Audio Unlock Overlay -->
+  <div id="unlockOverlay" class="absolute inset-0 bg-slate-950 z-50 flex flex-col items-center justify-center p-6 text-center">
+    <div class="text-6xl mb-6 animate-bounce">🎧</div>
+    <h1 class="text-2xl font-black mb-2">音声の準備</h1>
+    <p class="text-sm text-slate-400 mb-8">ブラウザの仕様により、<br>画面をタップして音声を有効にする必要があります。</p>
+    <button id="btnUnlock" class="bg-gradient-to-r from-pink-500 to-purple-600 text-white font-bold text-lg px-8 py-4 rounded-full shadow-lg shadow-pink-500/30 active:scale-95 transition-all w-full max-w-xs">
+      画面をタップして開始
+    </button>
+  </div>
+
+  <!-- Main Game Container -->
+  <main id="appContainer" class="w-full max-w-sm h-full flex flex-col relative bg-slate-900 overflow-hidden hidden shadow-2xl sm:border-x sm:border-slate-800">
+    
+    <!-- Top Header -->
+    <header class="p-3 bg-slate-950 flex items-center justify-between z-20 shrink-0">
+      <div class="flex items-center space-x-2">
+        <button id="btnHome" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 active:scale-95 transition-all">
+          <i class="ph-bold ph-house text-lg"></i>
+        </button>
+        <span id="stageBadge" class="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-400">Stage 1</span>
+      </div>
+      
+      <!-- 5 Hearts -->
+      <div id="heartsContainer" class="flex items-center space-x-0.5">
+        <i class="ph-fill ph-heart text-red-500 text-sm" id="h1"></i>
+        <i class="ph-fill ph-heart text-red-500 text-sm" id="h2"></i>
+        <i class="ph-fill ph-heart text-red-500 text-sm" id="h3"></i>
+        <i class="ph-fill ph-heart text-red-500 text-sm" id="h4"></i>
+        <i class="ph-fill ph-heart text-red-500 text-sm" id="h5"></i>
+      </div>
+
+      <div class="text-right">
+        <div class="text-[9px] text-slate-500 font-bold uppercase tracking-wider">SCORE</div>
+        <div id="scoreDisplay" class="font-mono font-black text-amber-400 text-base leading-none">0000</div>
+      </div>
+    </header>
+
+    <div class="w-full bg-slate-800 h-1 z-20 shrink-0">
+      <div id="progressBar" class="bg-gradient-to-r from-pink-500 to-indigo-500 h-1 transition-all duration-300" style="width: 0%"></div>
+    </div>
+
+    <!-- Hint Panel (상단 독립 분리) -->
+    <div class="px-3 pt-2 pb-1 bg-slate-900 shrink-0 z-10">
+      <div class="p-2.5 rounded-xl bg-slate-800/90 border border-slate-700 flex items-center shadow-lg">
+        <div id="hintEmoji" class="text-3xl bg-slate-900 w-12 h-12 rounded-lg flex items-center justify-center border border-slate-700/50 mr-3 overflow-hidden p-1 shrink-0">❓</div>
+        <div class="flex-1 min-w-0">
+          <div class="text-[10px] uppercase font-bold text-indigo-400">意味</div>
+          <div id="hintMeaningJa" class="text-base font-black text-white leading-tight truncate">準備中...</div>
+        </div>
+        <button id="btnReplayAudio" class="p-2.5 rounded-lg bg-pink-600 active:bg-pink-700 active:scale-95 transition-all text-white shadow-md shrink-0">
+          <i class="ph-bold ph-speaker-high text-xl"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Play Area (글자 낙하 필드) -->
+    <div class="flex-1 relative overflow-hidden bg-slate-900" id="playField">
+      
+      <div id="fallingBlockWrapper" class="absolute left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none z-10" style="top: -120px;">
+        <div id="countdownText" class="absolute -top-9 text-2xl font-black text-amber-400 drop-shadow-md hidden">5</div>
+        
+        <div id="syllableBox" class="w-22 h-22 sm:w-24 sm:h-24 rounded-2xl bg-indigo-600 border-4 border-indigo-400 shadow-xl flex flex-col items-center justify-center text-white relative">
+          <span id="displayIncomplete" class="text-4xl sm:text-5xl font-black leading-none">가</span>
+          <div id="batchimSlot" class="mt-1 w-10 h-6 rounded-md border-2 border-dashed border-indigo-300 bg-indigo-800/50 flex items-center justify-center text-base font-black text-amber-300">?</div>
+          <span id="displayComplete" class="hidden text-4xl sm:text-5xl font-black leading-none text-amber-300">강</span>
+        </div>
+      </div>
+
+      <div class="absolute bottom-2 left-0 right-0 h-7 border-t border-red-500/50 bg-red-900/20 flex items-center justify-center z-0">
+        <span class="text-[10px] font-black text-red-400 tracking-widest bg-slate-900 px-2 rounded-full">DEAD LINE</span>
+      </div>
+    </div>
+
+    <!-- Bottom Palette (원래 위치로 복원: p-3 bg-slate-950) -->
+    <div class="p-3 bg-slate-950 border-t border-slate-800 z-20 shrink-0">
+      <div class="text-[10px] font-bold text-slate-400 mb-1.5">当てはまるパッチムを選択</div>
+      <div id="batchimButtonsContainer" class="grid gap-2"></div>
+    </div>
+
+    <!-- Modals -->
+    <div id="startScreen" class="absolute inset-0 bg-slate-950/95 z-30 flex flex-col p-5 items-center justify-center text-center">
+      <div class="text-6xl mb-4 animate-bounce">💥</div>
+      <h1 class="text-3xl font-black mb-1">받침 크러셔</h1>
+      <p class="text-xs text-slate-400 mb-6">全95単語収録 (パッチム完全攻略)</p>
+      
+      <div class="w-full max-w-xs space-y-2" id="stageBtnGroup"></div>
+    </div>
+
+    <div id="feedbackModal" class="absolute inset-0 bg-slate-950/90 z-40 hidden flex items-center justify-center p-4">
+      <div class="w-full max-w-sm bg-slate-900 border-2 border-red-500 rounded-2xl p-5 shadow-2xl text-center">
+        <div class="text-3xl mb-2">❌</div>
+        <h3 class="text-base font-black text-white mb-4">おしい！</h3>
+        <div class="flex justify-center gap-3 mb-4">
+          <div class="flex-1 bg-red-950/50 p-3 rounded-xl border border-red-500/30">
+            <div class="text-[10px] text-red-400 font-bold mb-1">あなたが選んだ</div>
+            <div id="modalWrongChar" class="text-3xl font-black text-red-300">감</div>
+          </div>
+          <div class="flex-1 bg-emerald-950/50 p-3 rounded-xl border border-emerald-500/50">
+            <div class="text-[10px] text-emerald-400 font-bold mb-1">正解</div>
+            <div id="modalCorrectChar" class="text-3xl font-black text-emerald-400">강</div>
+          </div>
+        </div>
+        <p id="modalTipJa" class="text-xs text-slate-300 bg-slate-800 p-3 rounded-lg mb-5 text-left leading-relaxed">ポイント解説</p>
+        
+        <div class="flex gap-2">
+          <button id="btnPlayCompare" class="flex-1 py-3 rounded-xl bg-slate-800 active:bg-slate-700 text-xs font-bold text-white shadow-md border border-slate-700 flex items-center justify-center gap-1">
+            <i class="ph-bold ph-speaker-high text-pink-400 text-lg"></i> 比較して聞く
+          </button>
+          <button id="btnDismissModal" class="flex-1 py-3 rounded-xl bg-gradient-to-r from-pink-600 to-purple-600 text-xs font-bold text-white shadow-md active:scale-95">
+            次へ進む
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Result Modal (홈으로 돌아가기 버튼 정상 동작) -->
+    <div id="resultScreen" class="absolute inset-0 bg-slate-950/95 z-50 hidden flex flex-col p-5 items-center justify-center text-center">
+      <div id="resultIcon" class="text-6xl mb-4">🏆</div>
+      <h2 id="resultTitle" class="text-2xl font-black mb-2">CLEAR!</h2>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 w-full max-w-xs mb-6 space-y-2">
+        <div class="flex justify-between text-sm"><span class="text-slate-400">SCORE</span><span id="resScore" class="font-bold text-amber-400">0</span></div>
+      </div>
+      <button id="btnNextStage" class="w-full max-w-xs py-3.5 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-bold mb-3 shadow-lg active:scale-95 transition-all">次のステージへ</button>
+      <button id="btnHomeFromResult" class="w-full max-w-xs py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm font-bold text-slate-300 active:scale-95 transition-all border border-slate-700">タイトルに戻る</button>
+    </div>
+
+  </main>
+
+  <script>
+    /* ==========================================================
+       SVG 일러스트 (간, 전, 목, 굽, 겉)
+    ========================================================== */
+
+    const IMG_GEOT_SVG = `<svg class="w-full h-full" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M48 18C44 14 41 8 40 4C38 3 41 2 44 4C47 7 51 12 55 17" stroke="#78350f" stroke-width="4.5" stroke-linecap="round"/>
+      <path d="M43 17C46 16 54 16 57 17C55 20 45 20 43 17Z" fill="#78350f"/>
+      <circle cx="50" cy="56" r="41" fill="#4ade80"/>
+      <circle cx="50" cy="56" r="41" fill="#22c55e" opacity="0.8"/>
+      <path d="M49 16C52 23 48 30 52 38C56 46 51 54 53 62C55 70 51 84 50 97C47 97 45 74 47 64C49 54 44 46 47 38C50 30 46 23 49 16Z" fill="#14532d"/>
+      <path d="M46 17C41 24 35 32 37 42C39 52 32 63 35 73C38 83 36 91 38 95C34 92 31 83 31 72C31 61 34 51 32 41C30 31 38 23 46 17Z" fill="#14532d"/>
+      <path d="M54 17C60 24 67 32 64 42C61 52 69 63 66 73C63 83 65 91 63 95C67 92 70 83 69 72C68 61 65 51 68 41C71 31 62 23 54 17Z" fill="#14532d"/>
+      <path d="M43 19C33 26 21 37 20 48C19 59 20 71 24 82C27 89 29 91 29 91C24 85 16 74 15 60C14 46 22 33 36 21L43 19Z" fill="#14532d"/>
+      <path d="M57 19C67 26 79 37 80 48C81 59 80 71 76 82C73 89 71 91 71 91C76 85 84 74 85 60C86 46 78 33 64 21L57 19Z" fill="#14532d"/>
+      <ellipse cx="64" cy="38" rx="7" ry="12" transform="rotate(25 64 38)" fill="white" opacity="0.25"/>
+      <circle cx="50" cy="56" r="41" stroke="#14532d" stroke-width="2"/>
+    </svg>`;
+
+    const IMG_GAN_SVG = `<svg class="w-full h-full" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 25C8 40 8 70 14 90" stroke="#cbd5e1" stroke-width="4.5" stroke-linecap="round"/>
+      <path d="M88 28C92 45 90 70 86 90" stroke="#cbd5e1" stroke-width="4.5" stroke-linecap="round"/>
+      <path d="M52 2V35M51 60V95M57 65L68 90" stroke="#2563eb" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M62 60V75C62 82 66 88 68 95" stroke="#dc2626" stroke-width="4" stroke-linecap="round"/>
+      <path d="M16 46C13 32 23 18 43 17C55 16 57 23 57 33C57 52 56 62 50 67C43 73 34 88 23 88C15 88 18 62 16 46Z" fill="#cf7e69" stroke="#1e293b" stroke-width="2.6" stroke-linejoin="round"/>
+      <path d="M57 33C64 21 78 20 90 27C94 30 92 37 81 50C70 63 60 62 57 60V33Z" fill="#bd6b57" stroke="#1e293b" stroke-width="2.6" stroke-linejoin="round"/>
+      <path d="M55 21C58 26 57 42 55 58" stroke="#e2a898" stroke-width="2.8" stroke-linecap="round"/>
+      <ellipse cx="26" cy="33" rx="4" ry="7" transform="rotate(-25 26 33)" fill="white" opacity="0.45"/>
+      <ellipse cx="68" cy="27" rx="3.5" ry="2" fill="white" opacity="0.35"/>
+      <path d="M47 55L49 66M45 58L48 64" stroke="#15803d" stroke-width="3" stroke-linecap="round"/>
+      <path d="M48 66C50 67 47 77 40 85C34 91 29 86 31 79C33 73 42 66 48 66Z" fill="#65a30d" stroke="#1e293b" stroke-width="2.4"/>
+      <ellipse cx="34" cy="79" rx="1.8" ry="3.5" fill="#bef264" opacity="0.65"/>
+    </svg>`;
+
+    const IMG_JEON_SVG = `<svg class="w-full h-full" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="48" cy="52" r="45" fill="#d6cebe" stroke="#8c8270" stroke-width="3.5"/>
+      <circle cx="48" cy="52" r="41" fill="#c4baa7" opacity="0.5"/>
+      <circle cx="44" cy="50" r="34" fill="#ea580c"/>
+      <circle cx="44" cy="50" r="31" fill="#c2410c"/>
+      <path d="M16 48C18 30 33 20 48 20C40 25 25 35 25 50C25 65 38 75 48 78C30 78 18 68 16 48Z" fill="#9a3412" opacity="0.6"/>
+      <path d="M48 20C65 22 75 35 75 50C70 42 60 30 48 30V20Z" fill="#7c2d12" opacity="0.55"/>
+      <rect x="25" y="32" width="12" height="7" rx="1.5" transform="rotate(15 25 32)" fill="#f97316" stroke="#991b1b" stroke-width="1"/>
+      <rect x="42" y="38" width="14" height="8" rx="1.5" transform="rotate(-10 42 38)" fill="#fed7aa" stroke="#991b1b" stroke-width="1.2"/>
+      <rect x="24" y="55" width="13" height="7.5" rx="1.5" transform="rotate(-25 24 55)" fill="#fdba74" stroke="#991b1b" stroke-width="1"/>
+      <rect x="52" y="55" width="13" height="8" rx="1.5" transform="rotate(20 52 55)" fill="#f97316" stroke="#991b1b" stroke-width="1"/>
+      <circle cx="34" cy="44" r="2.8" fill="#16a34a" stroke="#14532d" stroke-width="1"/>
+      <circle cx="48" cy="32" r="2.8" fill="#dc2626" stroke="#7f1d1d" stroke-width="1"/>
+      <circle cx="43" cy="52" r="3" fill="#22c55e" stroke="#14532d" stroke-width="1"/>
+      <circle cx="35" cy="66" r="2.6" fill="#15803d"/>
+      <circle cx="58" cy="48" r="2.8" fill="#16a34a" stroke="#14532d" stroke-width="1"/>
+      <circle cx="38" cy="38" r="0.8" fill="#fef08a"/><circle cx="46" cy="46" r="0.8" fill="#fef08a"/><circle cx="30" cy="50" r="0.8" fill="#fef08a"/>
+      <circle cx="75" cy="27" r="16" fill="#1e293b" stroke="#0f172a" stroke-width="2.5"/>
+      <circle cx="75" cy="27" r="13" fill="#090d16"/>
+      <circle cx="73" cy="25" r="2" fill="#22c55e"/>
+      <circle cx="77" cy="29" r="1.5" fill="#ef4444"/>
+      <circle cx="72" cy="28" r="0.7" fill="#fef08a"/>
+    </svg>`;
+
+    const IMG_MOK_SVG = `<svg class="w-full h-full" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M2 85C14 74 28 68 34 66V22H66V66C72 68 86 74 98 85C85 96 15 96 2 85Z" fill="#fbd0b2"/>
+      <path d="M34 10V66C34 76 25 84 8 92H92C75 84 66 76 66 66V10H34Z" fill="#fbd0b2" stroke="#945233" stroke-width="2.8" stroke-linejoin="round"/>
+      <path d="M28 2C32 18 40 26 50 26C60 26 68 18 72 2H28Z" fill="#fbd0b2" stroke="#945233" stroke-width="2.6" stroke-linejoin="round"/>
+      <path d="M47 6C48 7 52 7 53 6" stroke="#945233" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M38 33C44 35 56 35 62 33" stroke="#b57353" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M47 48C48 53 52 56 56 55" stroke="#945233" stroke-width="2.6" stroke-linecap="round"/>
+      <path d="M42 56L47 88" stroke="#a06042" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M58 56L53 88" stroke="#a06042" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M47 94C49 96 51 96 53 94" stroke="#945233" stroke-width="2.6" stroke-linecap="round"/>
+    </svg>`;
+
+    const IMG_GUP_SVG = `<svg class="w-full h-full" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M26 36C35 48 50 65 67 67C74 68 83 62 76 56C65 52 46 36 34 22L26 36Z" fill="#d8ba9b"/>
+      <path d="M19 14C12 25 15 42 22 55C22 65 24 81 25 90H29L30 58C34 68 45 77 60 83C75 89 87 87 94 84C96 83 97 81 95 80C85 78 72 73 64 63C50 47 38 27 25 12C21 8 19 9 19 14Z" fill="#dc2626" stroke="#1e293b" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M94 84C85 89 65 92 48 89C35 86 28 89 25 90L24 93C26 94 38 94 50 93C70 91 88 88 95 82L94 84Z" fill="#1e293b"/>
+      <rect x="23.5" y="89" width="5.5" height="5" rx="1" fill="#1e293b"/>
+      <path d="M21 20C21 28 27 36 31 38" stroke="white" stroke-width="3.5" stroke-linecap="round"/>
+      <ellipse cx="33" cy="40" rx="1.8" ry="3.5" transform="rotate(-30 33 40)" fill="white"/>
+      <circle cx="27" cy="76" r="16" stroke="#f43f5e" stroke-width="2.5" stroke-dasharray="3.5 2.5"/>
+      <path d="M46 76L42 73V79L46 76Z" fill="#f43f5e"/>
+    </svg>`;
+
+    const q = (base, batchim, meaning, tip, emoji) => ({ base, correctBatchim: batchim, meaningJa: meaning, tip, emoji });
+
+    /* ==========================================================
+       단어 데이터베이스
+    ========================================================== */
+    const ALL_WORDS = [
+      q('가','ㅁ','柿','唇をしっかり閉じる音','🍊'), q('가','ㅇ','川','口を開けたまま喉の奥で鳴らす音','🌊'),
+      q('가','ㄴ','肝/間','舌先を上の歯茎につける音', IMG_GAN_SVG),
+      q('고','ㅁ','熊','唇を閉じる音','🐻'), q('고','ㅇ','ボール','口を開けたまま鼻に抜く音','⚽'), q('고','ㅅ','所','舌先で息をピタッと止める音','📍'),
+      q('거','ㅁ','剣','唇を閉じる音','🗡️'),
+      q('거','ㅌ','表/外側','舌先で息を止める音', IMG_GEOT_SVG),
+      q('구','ㄴ','軍','舌先を歯茎につける音','🪖'), q('구','ㅇ','宮','口を開けたままの音','🏰'), q('구','ㄹ','牡蠣','舌を巻かずに上あごにつける音','🦪'),
+      q('구','ㅂ','靴のかかと','唇を閉じて息を止める音', IMG_GUP_SVG),
+      q('그','ㄹ','文','舌を上あごにつける音','📝'), q('기','ㄹ','道','舌を上あごにつける音','🛣️'), q('기','ㅁ','海苔','唇を閉じる音','🍙'),
+      q('나','ㅁ','他人','唇を閉じる音','🧭'), q('노','ㄴ','田んぼ','舌先をつける音','🌾'), q('누','ㄴ','雪/目','舌先をつける音','👁️'), q('느','ㄹ','いつも','舌を上あごにつける音','⏳'), q('니','ㅁ','様','唇を閉じる音','👤'),
+      q('다','ㅁ','塀','唇を閉じる音','🧱'), q('다','ㄹ','月','舌を上あごにつける音','🌙'), q('다','ㅂ','答え','唇を閉じて息を止める音','✅'), q('더','ㅁ','おまけ','唇を閉じる音','🎁'),
+      q('도','ㄴ','お金','舌先をつける音','💰'), q('도','ㅇ','東','口を開けたままの音','🧭'), q('도','ㄹ','石','舌を上あごにつける音','🪨'), q('두','ㄹ','数字の2','舌を上あごにつける音','✌️'),
+      q('드','ㅇ','背中/灯','口を開けたままの音','💡'), q('드','ㄹ','野原/〜達','舌を上あごにつける音','🌾'),
+      q('루','ㅁ','ルーム','唇を閉じる音','🚪'), q('루','ㄹ','ルール','舌を上あごにつける音','📏'),
+      q('마','ㄴ','万/〜だけ','舌先をつける音','💯'), q('마','ㄹ','馬/言葉','舌を上あごにつける音','🐎'), q('머','ㅅ','かっこよさ','舌先で息を止める音','✨'),
+      q('모','ㄱ','首/喉','喉の奥を塞いで息を止める音', IMG_MOK_SVG),
+      q('모','ㅁ','体','唇を閉じる音','🧍'), q('무','ㄹ','水','舌を上あごにつける音','💧'), q('무','ㄴ','ドア/門','舌先をつける音','🚪'), q('미','ㄹ','小麦','舌を上あごにつける音','🌾'),
+      q('바','ㅌ','畑','舌先で息を止める音','🌱'), q('바','ㄲ','外','喉の奥で息を止める音','밖'), q('바','ㅂ','ご飯','唇を閉じて息を止める音','🍚'), q('바','ㅁ','夜/栗','唇を閉じる音','🌰'),
+      q('바','ㅇ','部屋','口を開けたままの音','🚪'), q('바','ㄹ','足','舌を上あごにつける音','🦶'), q('바','ㄴ','半分/クラス','舌先をつける音','🌗'), q('버','ㅁ','虎','唇を閉じる音','🐯'),
+      q('벼','ㄹ','星','舌を上あごにつける音','⭐'), q('부','ㅅ','筆','舌先で息を止める音','🖌️'), q('부','ㄴ','分/方','舌先をつける音','⏱️'), q('부','ㄹ','火','舌を上あごにつける音','🔥'), q('배','ㅁ','蛇','唇を閉じる音','🐍'),
+      q('사','ㄴ','山','舌先をつける音','⛰️'), q('사','ㅇ','賞/テーブル','口を開けたままの音','🏆'), q('사','ㅁ','数字の3','唇を閉じる音','3️⃣'),
+      q('서','ㅁ','島','唇を閉じる音','🏝️'), q('서','ㄴ','線','舌先をつける音','〰️'), q('서','ㅇ','城/性','口を開けたまま의音','🏰'),
+      q('소','ㄴ','手','舌先をつける音','✋'), q('소','ㅁ','綿','唇を閉じる音','☁️'),
+      q('수','ㅁ','息','唇を閉じる音','😮‍💨'), q('수','ㅍ','森','唇を閉じて息を止める音','🌲'), q('수','ㄹ','お酒','舌を上あごにつける音','🍺'),
+      q('시','ㄹ','糸','舌를上あごにつける音','🧵'), q('시','ㅂ','数字の10','唇を閉じて息を止める音','🔟'), q('새','ㅁ','泉/嫉妬','唇を閉じる音','⛲'),
+      q('아','ㄹ','卵','舌を上あごにつける音','🥚'), q('오','ㅅ','服','舌先で息を止める音','👕'),
+      q('이','ㄹ','仕事/数字의1','舌を上あごにつける音','💼'), q('이','ㅂ','口','唇を閉じて息を止める音','👄'),
+      q('자','ㅁ','眠り','唇を閉じる音','💤'), q('자','ㄴ','グラス/杯','舌先をつける音','🍷'), q('자','ㅇ','枚','口を開けたままの音','📄'),
+      q('자','ㄹ','よく(上手に)','舌を上あごにつける音','👍'),
+      q('저','ㄴ','チヂミ/前','舌先をつける音', IMG_JEON_SVG),
+      q('저','ㄹ','お寺/お辞儀','舌を上あごにつける音','🛕'), q('저','ㅇ','情','口を開けたままの音','💖'),
+      q('조','ㅇ','鐘','口を開けたままの音','🔔'), q('지','ㅁ','荷物','唇を閉じる音','📦'),
+      q('차','ㅁ','本当に/真','唇を閉じる音','✨'), q('차','ㅇ','窓','口を開けたままの音','🪟'),
+      q('처','ㄴ','数字の1000/布','舌先をつける音','천'), q('처','ㄹ','鉄','舌を上あごにつける音','⚙️'),
+      q('초','ㅇ','銃/総〜','口を開けたままの音','🔫'),
+      q('추','ㅁ','踊り','唇を閉じる音','💃'),
+      q('츠','ㅇ','階/層','口を開けたままの音','🏢'),
+      q('치','ㄹ','数字の7','舌を上あごにつける音','7️⃣'),
+      q('커','ㅂ','コップ','唇を閉じて息を止める音','☕'), q('카','ㄹ','包丁/刀','舌を上あごにつける音','🔪'), q('코','ㅇ','豆','口を開けたままの音','🫘'),
+      q('터','ㄹ','毛','舌を上あごにつける音','🪶'), q('트','ㅁ','隙間','唇를閉じる音','틈'), q('티','ㅁ','チーム','唇を閉じる音','👥'),
+      q('파','ㅌ','小豆','舌先で息を止める音','🫘'), q('파','ㄹ','腕/数字の8','舌を上あごにつける音','💪'), q('푸','ㄹ','草/糊','舌を上あごにつける音','🌿'),
+      q('히','ㅁ','力','唇を閉じる音','💪')
+    ];
+
+    /* k, p, t 계열 음소 그룹 */
+    const K_GROUP = ['ㄱ','ㄲ','ㅋ'];
+    const P_GROUP = ['ㅂ','ㅍ'];
+    const T_GROUP = ['ㅅ','ㅆ','ㄷ','ㅌ','ㅈ','ㅊ','ㅎ'];
+
+    /* ==========================================================
+       스테이지 설정
+    ========================================================== */
+    const STAGES = [
+      { 
+        title: "Stage 1: 鼻音 (ㄴ/ㅁ/ㅇ)", 
+        questions: ALL_WORDS.filter(w => ['ㄴ','ㅇ','ㅁ'].includes(w.correctBatchim)).sort(()=>Math.random()-0.5).slice(0, 10) 
+      },
+      { 
+        title: "Stage 2: 舌先と流音 (ㄴ/ㄹ)", 
+        questions: ALL_WORDS.filter(w => ['ㄴ','ㄹ'].includes(w.correctBatchim)).sort(()=>Math.random()-0.5).slice(0, 10) 
+      },
+      { 
+        title: "Stage 3: 息止め (k/p/t 閉鎖音)", 
+        questions: ALL_WORDS.filter(w => [...K_GROUP, ...P_GROUP, ...T_GROUP].includes(w.correctBatchim)).sort(()=>Math.random()-0.5).slice(0, 10) 
+      },
+      { 
+        title: "Stage 4: 総合ランダム", 
+        questions: [...ALL_WORDS].sort(()=>Math.random()-0.5).slice(0, 15) 
+      }
+    ];
+
+    /* ==========================================================
+       받침 버튼 동적/고정 생성 규칙
+    ========================================================== */
+    function generateDynamicOptions(stageIdx, correct) {
+      // Stage 1 고정: [ ㄴ, ㅁ, ㅇ ]
+      if (stageIdx === 0) {
+        return ['ㄴ', 'ㅁ', 'ㅇ'];
+      }
+      
+      // Stage 2 고정: [ ㄴ, ㄹ ]
+      if (stageIdx === 1) {
+        return ['ㄴ', 'ㄹ'];
+      }
+      
+      // Stage 3 고정 순서: [ K계열, P계열, T계열 ]
+      if (stageIdx === 2) {
+        let k = K_GROUP.includes(correct) ? correct : 'ㄱ';
+        let p = P_GROUP.includes(correct) ? correct : 'ㅂ';
+        let t = T_GROUP.includes(correct) ? correct : 'ㅅ';
+        return [k, p, t];
+      }
+      
+      // Stage 4 (종합 랜덤): 7개 카테고리 중 5개 무작위 추출 후 1~7번 오름차순 정렬
+      if (stageIdx === 3) {
+        const CATEGORIES = [
+          { id: 1, defaultChar: 'ㄴ', members: ['ㄴ'] },
+          { id: 2, defaultChar: 'ㅁ', members: ['ㅁ'] },
+          { id: 3, defaultChar: 'ㅇ', members: ['ㅇ'] },
+          { id: 4, defaultChar: 'ㄹ', members: ['ㄹ'] },
+          { id: 5, defaultChar: 'ㄱ', members: K_GROUP },
+          { id: 6, defaultChar: 'ㅂ', members: P_GROUP },
+          { id: 7, defaultChar: 'ㅅ', members: T_GROUP }
+        ];
+
+        let correctCat = CATEGORIES.find(c => c.members.includes(correct)) || CATEGORIES[0];
+        let otherCats = CATEGORIES.filter(c => c.id !== correctCat.id).sort(() => Math.random() - 0.5);
+        let selectedCats = [correctCat, ...otherCats.slice(0, 4)];
+
+        // 번호순(1~7) 오름차순 정렬 (앞 숫자가 빠른 순)
+        selectedCats.sort((a, b) => a.id - b.id);
+
+        return selectedCats.map(cat => (cat.id === correctCat.id ? correct : cat.defaultChar));
+      }
+
+      return ['ㄴ', 'ㅁ', 'ㅇ'];
+    }
+
+    /* TTS Audio */
+    let synth = window.speechSynthesis;
+    let utteranceCache = []; 
+
+    function speakKorean(text, rate = 0.85, callback = null) {
+      if (!synth) { if(callback) callback(); return; }
+      synth.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'ko-KR';
+      u.rate = rate;
+      if (callback) u.onend = callback;
+      utteranceCache.push(u);
+      if(utteranceCache.length > 5) utteranceCache.shift();
+      synth.speak(u);
+    }
+
+    const JONG = ['','ㄱ','ㄲ','ㄳ','ㄴ','ㄵ','ㄶ','ㄷ','ㄹ','ㄺ','ㄻ','ㄼ','ㄽ','ㄾ','ㄿ','ㅀ','ㅁ','ㅂ','ㅄ','ㅅ','ㅆ','ㅇ','ㅈ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+    function composeHangul(base, jongChar) {
+      if (!base) return base;
+      const code = base.charCodeAt(0) - 0xAC00;
+      if (code < 0 || code > 11171) return base;
+      const cho = Math.floor(code / 588);
+      const jung = Math.floor((code % 588) / 28);
+      const jongIdx = JONG.indexOf(jongChar);
+      if (jongIdx === -1) return base;
+      return String.fromCharCode(0xAC00 + (cho * 588) + (jung * 28) + jongIdx);
+    }
+
+    let currentStage = 0;
+    let qIndex = 0;
+    let lives = 5;
+    let score = 0;
+    
+    let animFrameId = null;
+    let blockY = -120;
+    let isFalling = false;
+    let isPaused = false;
+    let fallSpeed = 0.8;
+    let targetWordStr = "";
+
+    let timer2Sec = null;
+    let timer5SecPause = null;
+    let countdownInterval = null;
+
+    const blockWrapper = document.getElementById('fallingBlockWrapper');
+    const playField = document.getElementById('playField');
+    const countdownText = document.getElementById('countdownText');
+
+    document.getElementById('btnUnlock').addEventListener('click', () => {
+      speakKorean(''); 
+      document.getElementById('unlockOverlay').classList.add('hidden');
+      document.getElementById('appContainer').classList.remove('hidden');
+      renderStartScreen();
+    });
+
+    function renderStartScreen() {
+      const g = document.getElementById('stageBtnGroup');
+      g.innerHTML = '';
+      STAGES.forEach((s, idx) => {
+        const btn = document.createElement('button');
+        btn.className = "w-full p-4 rounded-xl bg-slate-800 hover:bg-slate-700 font-bold text-sm text-left border border-slate-700 flex justify-between active:scale-95 transition-all";
+        btn.innerHTML = `<span>${s.title}</span><span class="text-pink-400">▶</span>`;
+        btn.onclick = () => startGame(idx);
+        g.appendChild(btn);
+      });
+      document.getElementById('startScreen').classList.remove('hidden');
+    }
+
+    function startGame(idx) {
+      currentStage = idx;
+      qIndex = 0;
+      lives = 5;
+      score = 0;
+      updateHeader();
+      
+      document.getElementById('startScreen').classList.add('hidden');
+      document.getElementById('resultScreen').classList.add('hidden');
+      document.getElementById('feedbackModal').classList.add('hidden');
+      document.getElementById('stageBadge').textContent = `STAGE ${idx + 1}`;
+      
+      loadQuestion();
+    }
+
+    function updateHeader() {
+      document.getElementById('scoreDisplay').textContent = score.toString().padStart(4, '0');
+      for(let i=1; i<=5; i++){
+        const h = document.getElementById('h'+i);
+        if(i <= lives) h.className = "ph-fill ph-heart text-red-500 text-sm";
+        else h.className = "ph-bold ph-heart-break text-slate-700 text-sm";
+      }
+    }
+
+    function loadQuestion() {
+      clearAllTimers();
+      const stage = STAGES[currentStage];
+      if (qIndex >= stage.questions.length) {
+        showResult(true);
+        return;
+      }
+      
+      const q = stage.questions[qIndex];
+      targetWordStr = composeHangul(q.base, q.correctBatchim);
+      
+      const opts = generateDynamicOptions(currentStage, q.correctBatchim);
+      const bc = document.getElementById('batchimButtonsContainer');
+      bc.style.gridTemplateColumns = `repeat(${opts.length}, minmax(0, 1fr))`;
+      bc.innerHTML = '';
+      opts.forEach(opt => {
+        const btn = document.createElement('button');
+        btn.className = "retro-btn bg-slate-800 border-2 border-slate-700 h-16 rounded-xl text-2xl font-black active:bg-indigo-600";
+        btn.textContent = opt;
+        btn.onclick = () => handleAnswer(opt);
+        bc.appendChild(btn);
+      });
+
+      document.getElementById('progressBar').style.width = `${((qIndex)/stage.questions.length)*100}%`;
+      
+      document.getElementById('displayIncomplete').textContent = q.base;
+      document.getElementById('displayIncomplete').classList.remove('hidden');
+      document.getElementById('batchimSlot').textContent = '?';
+      document.getElementById('batchimSlot').classList.remove('hidden', 'snap-anim');
+      document.getElementById('displayComplete').classList.add('hidden');
+      document.getElementById('syllableBox').className = "w-22 h-22 sm:w-24 sm:h-24 rounded-2xl bg-indigo-600 border-4 border-indigo-400 shadow-xl flex flex-col items-center justify-center text-white relative transition-all";
+      
+      document.getElementById('hintEmoji').innerHTML = q.emoji || '❓';
+      document.getElementById('hintMeaningJa').textContent = q.meaningJa;
+      countdownText.classList.add('hidden');
+      
+      blockY = -100;
+      isFalling = true;
+      isPaused = false;
+      fallSpeed = 1.0;
+      
+      speakKorean(targetWordStr); 
+      timer2Sec = setTimeout(() => { speakKorean(targetWordStr); }, 2000); 
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    function gameLoop() {
+      if (!isFalling) return;
+      
+      if (!isPaused) {
+        blockY += fallSpeed;
+        blockWrapper.style.top = blockY + 'px';
+        
+        const maxH = playField.clientHeight - 80;
+        
+        // 5초 대기 멈춤 위치: 상단 22% 높이
+        if (blockY > maxH * 0.22 && fallSpeed === 1.0) {
+          isPaused = true;
+          start5SecPause();
+        }
+        
+        if (blockY > maxH) {
+          handleTimeout();
+          return;
+        }
+      }
+      animFrameId = requestAnimationFrame(gameLoop);
+    }
+
+    function start5SecPause() {
+      let count = 5;
+      countdownText.textContent = count;
+      countdownText.classList.remove('hidden');
+      
+      countdownInterval = setInterval(() => {
+        count--;
+        if(count > 0) {
+          countdownText.textContent = count;
+        } else {
+          clearInterval(countdownInterval);
+          countdownText.classList.add('hidden');
+          isPaused = false;
+          fallSpeed = 0.35; 
+          speakKorean(targetWordStr);
+        }
+      }, 1000);
+    }
+
+    function clearAllTimers() {
+      clearTimeout(timer2Sec);
+      clearTimeout(timer5SecPause);
+      clearInterval(countdownInterval);
+      cancelAnimationFrame(animFrameId);
+      isFalling = false;
+    }
+
+    function handleAnswer(ans) {
+      if (!isFalling) return;
+      clearAllTimers();
+      
+      const q = STAGES[currentStage].questions[qIndex];
+      const formed = composeHangul(q.base, ans);
+      
+      document.getElementById('batchimSlot').textContent = ans;
+      document.getElementById('batchimSlot').classList.add('snap-anim');
+      
+      setTimeout(() => {
+        document.getElementById('displayIncomplete').classList.add('hidden');
+        document.getElementById('batchimSlot').classList.add('hidden');
+        document.getElementById('displayComplete').textContent = formed;
+        document.getElementById('displayComplete').classList.remove('hidden');
+
+        if (ans === q.correctBatchim) {
+          handleCorrect(formed);
+        } else {
+          handleWrong(ans, formed, q);
+        }
+      }, 150);
+    }
+
+    function handleCorrect(word) {
+      score += 100;
+      updateHeader();
+      speakKorean(word);
+      document.getElementById('syllableBox').className = "w-22 h-22 sm:w-24 sm:h-24 rounded-2xl bg-emerald-500 border-4 border-emerald-300 shadow-xl flex flex-col items-center justify-center text-white crush-anim";
+      
+      if(window.confetti) {
+        const rect = document.getElementById('syllableBox').getBoundingClientRect();
+        confetti({
+          particleCount: 20, spread: 50,
+          origin: { x: (rect.left+rect.width/2)/window.innerWidth, y: (rect.top+rect.height/2)/window.innerHeight }
+        });
+      }
+      setTimeout(() => { qIndex++; loadQuestion(); }, 400);
+    }
+
+    function handleWrong(ans, wrongWord, q) {
+      lives--;
+      updateHeader();
+      document.getElementById('syllableBox').className = "w-22 h-22 sm:w-24 sm:h-24 rounded-2xl bg-red-600 border-4 border-red-400 shadow-xl flex flex-col items-center justify-center text-white shake-anim";
+      
+      setTimeout(() => {
+        if(lives <= 0) showResult(false);
+        else showFeedbackModal(ans, wrongWord, q);
+      }, 400);
+    }
+
+    function handleTimeout() {
+      clearAllTimers();
+      lives--;
+      updateHeader();
+      document.getElementById('syllableBox').className = "w-22 h-22 sm:w-24 sm:h-24 rounded-2xl bg-red-900 border-4 border-red-500 flex flex-col items-center justify-center text-white shake-anim";
+      const q = STAGES[currentStage].questions[qIndex];
+      setTimeout(() => {
+        if(lives <= 0) showResult(false);
+        else showFeedbackModal("-", "時間切れ", q);
+      }, 400);
+    }
+
+    function showFeedbackModal(ans, wrongWord, q) {
+      const correctWord = composeHangul(q.base, q.correctBatchim);
+      document.getElementById('modalWrongChar').textContent = wrongWord;
+      document.getElementById('modalCorrectChar').textContent = correctWord;
+      document.getElementById('modalTipJa').innerHTML = `💡 ${q.tip}`;
+      
+      const modal = document.getElementById('feedbackModal');
+      modal.classList.remove('hidden');
+
+      document.getElementById('btnPlayCompare').onclick = () => {
+        if(ans !== "-") {
+          speakKorean(wrongWord, 0.85, () => { setTimeout(()=>speakKorean(correctWord, 0.85), 500); });
+        } else {
+          speakKorean(correctWord);
+        }
+      };
+
+      document.getElementById('btnDismissModal').onclick = () => {
+        modal.classList.add('hidden');
+        qIndex++;
+        loadQuestion();
+      };
+    }
+
+    function showResult(isClear) {
+      clearAllTimers();
+      const rs = document.getElementById('resultScreen');
+      rs.classList.remove('hidden');
+      document.getElementById('resultIcon').textContent = isClear ? '🏆' : '💀';
+      document.getElementById('resultTitle').textContent = isClear ? 'STAGE CLEAR' : 'GAME OVER';
+      document.getElementById('resScore').textContent = score;
+      document.getElementById('btnNextStage').classList.toggle('hidden', !isClear);
+    }
+
+    function goHome() {
+      clearAllTimers();
+      document.getElementById('resultScreen').classList.add('hidden');
+      document.getElementById('feedbackModal').classList.add('hidden');
+      renderStartScreen();
+    }
+
+    document.getElementById('btnHome').onclick = goHome;
+    document.getElementById('btnHomeFromResult').onclick = goHome;
+    document.getElementById('btnNextStage').onclick = () => { startGame((currentStage + 1) % STAGES.length); };
+    document.getElementById('btnReplayAudio').onclick = () => { if(targetWordStr) speakKorean(targetWordStr); };
+  </script>
+</body>
+</html>
